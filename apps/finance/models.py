@@ -6,6 +6,7 @@ class PaymentCategory(models.Model):
     description = models.TextField(blank=True, null=True)
     default_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0.00)
     is_mandatory = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name_plural = "Payment Categories"
