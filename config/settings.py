@@ -114,3 +114,4 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     X_FRAME_OPTIONS = 'DENY'
 
+
