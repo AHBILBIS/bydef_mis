@@ -52,20 +52,27 @@ def verify_payment_view(request, payment_id):
     if request.method == 'POST':
         payment = get_object_or_404(PaymentSubmission, pk=payment_id)
         
-        with transaction.atomic():
+        # Update payment status
+        if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED'):
+            payment.status = PaymentSubmission.Status.APPROVED
+        else:
             payment.status = 'approved'
-            payment.save()
+            
+        if hasattr(payment, 'reviewed_by'):
+            payment.reviewed_by = request.user
+        payment.save()
 
-            # Post double-entry transaction into immutable Ledger
-            FinancialLedger.objects.create(
-                submission=payment,
-                amount=payment.amount,
-                description=f"Payment for {payment.category.name} by {payment.member.first_name} {payment.member.last_name} ({payment.member.member_number})",
-                posted_by=request.user
-            )
-
-        messages.success(request, f"Payment Ref: {payment.payment_reference} verified and posted to Ledger.")
+        # Create corresponding ledger entry
+        FinancialLedger.objects.create(
+            payment=payment,
+            amount=payment.amount
+        )
+        
+        messages.success(request, 'Payment successfully verified and posted to ledger.')
+        return redirect('financial_dashboard')
+    
     return redirect('financial_dashboard')
+
 
 @login_required
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
