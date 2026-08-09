@@ -1,9 +1,10 @@
-from django.db import models
+﻿from django.db import models
 from django.conf import settings
 
 class PaymentCategory(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
+    default_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0.00)
 
     class Meta:
         verbose_name_plural = "Payment Categories"
@@ -27,4 +28,3 @@ class FinancialLedger(models.Model):
     payment = models.OneToOneField(PaymentSubmission, on_delete=models.CASCADE, null=True, blank=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
-
