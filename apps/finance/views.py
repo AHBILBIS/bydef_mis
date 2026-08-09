@@ -12,7 +12,7 @@ from .forms import PaymentSubmissionForm
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def financial_dashboard_view(request):
     pending_payments = PaymentSubmission.objects.filter(status=PaymentSubmission.Status.PENDING)
-    verified_payments = PaymentSubmission.objects.filter(status=PaymentSubmission.Status.VERIFIED)
+    verified_payments = PaymentSubmission.objects.filter(status='approved')
     ledger_entries = FinancialLedger.objects.all()
 
     total_revenue = FinancialLedger.objects.filter(
@@ -55,7 +55,7 @@ def verify_payment_view(request, payment_id):
         payment = get_object_or_404(PaymentSubmission, id=payment_id)
         
         with transaction.atomic():
-            payment.status = PaymentSubmission.Status.VERIFIED
+            payment.status = 'approved'
             payment.save()
 
             # Post double-entry transaction into immutable Ledger
