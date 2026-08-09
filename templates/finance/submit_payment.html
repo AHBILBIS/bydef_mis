@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Submit Payment - BYDEF MIS{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-header bg-success text-white py-3">
+                <h5 class="mb-0 fw-bold">Upload Payment Receipt</h5>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Payment Category</label>
+                        {{ form.category }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Amount Paid (NGN)</label>
+                        {{ form.amount }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Transaction Reference Number</label>
+                        {{ form.payment_reference }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Proof of Payment File (Image/PDF)</label>
+                        {{ form.proof_of_payment }}
+                    </div>
+                    <button type="submit" class="btn btn-success w-100 py-2 mt-3">Submit for Verification</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

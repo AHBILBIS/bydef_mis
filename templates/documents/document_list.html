@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Document Center - BYDEF MIS{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold text-dark">Central Document Repository</h2>
+    {% if user.role != 'GENERAL_MEMBER' or user.is_superuser %}
+        <a href="{% url 'upload_document' %}" class="btn btn-primary">+ Upload New Document</a>
+    {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Title</th>
+                        <th>Access Restrictions</th>
+                        <th>Uploaded By</th>
+                        <th>Upload Date</th>
+                        <th class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for doc in documents %}
+                    <tr>
+                        <td>
+                            <strong>{{ doc.title }}</strong>
+                            {% if doc.description %}<br><small class="text-muted">{{ doc.description }}</small>{% endif %}
+                        </td>
+                        <td>
+                            <span class="badge {% if doc.access_level == 'ALL_MEMBERS' %}bg-info{% elif doc.access_level == 'EXCO_ONLY' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                {{ doc.get_access_level_display }}
+                            </span>
+                        </td>
+                        <td>{{ doc.uploaded_by.email }}</td>
+                        <td>{{ doc.uploaded_at|date:"d M Y" }}</td>
+                        <td class="text-end">
+                            <a href="{{ doc.file.url }}" target="_blank" class="btn btn-outline-primary btn-sm">Download / View</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4 text-muted">No accessible documents available in the repository.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

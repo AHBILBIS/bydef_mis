@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Upload Document - BYDEF MIS{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-header bg-primary text-white py-3">
+                <h5 class="mb-0 fw-bold">Upload Official Document</h5>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Document Title</label>
+                        <input type="text" name="title" class="form-control" placeholder="e.g. Annual Report 2026" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description (Optional)</label>
+                        <textarea name="description" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Access Level</label>
+                        <select name="access_level" class="form-select">
+                            <option value="ALL_MEMBERS">All Approved Members</option>
+                            <option value="EXCO_ONLY">Executive Committee Only</option>
+                            <option value="CHAIRMAN_ONLY">Chairman & Secretary Only</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Select File (PDF, DOCX)</label>
+                        <input type="file" name="document_file" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 py-2 mt-3">Upload File</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
