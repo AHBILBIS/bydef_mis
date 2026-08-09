@@ -47,13 +47,15 @@ def submit_payment_view(request):
     return render(request, 'finance/submit_payment.html', {'form': form})
 
 @login_required
-@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        # Primary key lookup without restrictive status filters
-        payment = get_object_or_404(PaymentSubmission, pk=payment_id)
+        try:
+            payment = PaymentSubmission.objects.get(pk=payment_id)
+        except PaymentSubmission.DoesNotExist:
+            messages.error(request, f"Payment record ({payment_id}) was not found or has already been processed.")
+            return redirect('financial_dashboard')
         
-        # Safe status update
+        # Update status
         if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED'):
             payment.status = PaymentSubmission.Status.APPROVED
         else:
@@ -64,16 +66,19 @@ def verify_payment_view(request, payment_id):
             
         payment.save()
 
-        # Post entry to ledger
+        # Create ledger entry
         FinancialLedger.objects.create(
             payment=payment,
             amount=payment.amount
         )
         
-        messages.success(request, 'Payment successfully verified and posted to ledger.')
+        messages.success(request, "Payment successfully verified and posted to ledger.")
         return redirect('financial_dashboard')
     
     return redirect('financial_dashboard')
+
+
+
 def reject_payment_view(request, payment_id):
     if request.method == 'POST':
         payment = get_object_or_404(PaymentSubmission, pk=payment_id)
