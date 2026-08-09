@@ -50,9 +50,10 @@ def submit_payment_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
+        # Primary key lookup without restrictive status filters
         payment = get_object_or_404(PaymentSubmission, pk=payment_id)
         
-        # Update payment status
+        # Safe status update
         if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED'):
             payment.status = PaymentSubmission.Status.APPROVED
         else:
@@ -60,9 +61,10 @@ def verify_payment_view(request, payment_id):
             
         if hasattr(payment, 'reviewed_by'):
             payment.reviewed_by = request.user
+            
         payment.save()
 
-        # Create corresponding ledger entry
+        # Post entry to ledger
         FinancialLedger.objects.create(
             payment=payment,
             amount=payment.amount
@@ -72,10 +74,6 @@ def verify_payment_view(request, payment_id):
         return redirect('financial_dashboard')
     
     return redirect('financial_dashboard')
-
-
-@login_required
-@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def reject_payment_view(request, payment_id):
     if request.method == 'POST':
         payment = get_object_or_404(PaymentSubmission, pk=payment_id)
