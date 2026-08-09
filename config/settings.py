@@ -115,3 +115,9 @@ if not DEBUG:
     X_FRAME_OPTIONS = 'DENY'
 
 
+
+# CSRF Trusted Origins for Render Deployment
+CSRF_TRUSTED_ORIGINS = [
+    "https://bydef-mis.onrender.com",
+    "https://*.onrender.com",
+]
