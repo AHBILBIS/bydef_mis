@@ -15,9 +15,7 @@ def financial_dashboard_view(request):
     verified_payments = PaymentSubmission.objects.filter(status='approved')
     ledger_entries = FinancialLedger.objects.all()
 
-    total_revenue = FinancialLedger.objects.filter(
-        transaction_type='credit'
-    ).aggregate(Sum('amount'))['amount__sum'] or 0.00
+    total_revenue = FinancialLedger.objects.all().aggregate(Sum('amount'))['amount__sum'] or 0.00
 
     context = {
         'pending_payments': pending_payments,
@@ -61,7 +59,6 @@ def verify_payment_view(request, payment_id):
             # Post double-entry transaction into immutable Ledger
             FinancialLedger.objects.create(
                 submission=payment,
-                transaction_type='credit',
                 amount=payment.amount,
                 description=f"Payment for {payment.category.name} by {payment.member.first_name} {payment.member.last_name} ({payment.member.member_number})",
                 posted_by=request.user
