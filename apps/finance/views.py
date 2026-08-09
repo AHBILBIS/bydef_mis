@@ -50,7 +50,7 @@ def submit_payment_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        payment = get_object_or_404(PaymentSubmission, id=payment_id)
+        payment = get_object_or_404(PaymentSubmission, pk=payment_id)
         
         with transaction.atomic():
             payment.status = 'approved'
@@ -71,7 +71,7 @@ def verify_payment_view(request, payment_id):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def reject_payment_view(request, payment_id):
     if request.method == 'POST':
-        payment = get_object_or_404(PaymentSubmission, id=payment_id)
+        payment = get_object_or_404(PaymentSubmission, pk=payment_id)
         reason = request.POST.get('rejection_reason', 'Payment could not be verified.')
 
         payment.status = PaymentSubmission.Status.REJECTED
