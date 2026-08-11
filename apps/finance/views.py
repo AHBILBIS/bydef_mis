@@ -12,13 +12,12 @@ def align_finance_schema():
     """Ensure database column types for finance_paymentsubmission match UUID user keys."""
     try:
         with connection.cursor() as cursor:
-            # Change user_id column type to UUID if it was created as bigint
             cursor.execute("""
                 ALTER TABLE finance_paymentsubmission 
                 ALTER COLUMN user_id TYPE uuid USING user_id::text::uuid;
             """)
     except Exception:
-        pass  # Schema already updated or aligned
+        pass
 
 @login_required
 def submit_payment_view(request):
@@ -38,7 +37,6 @@ def submit_payment_view(request):
                 except (PaymentCategory.DoesNotExist, ValueError):
                     cat_obj = None
 
-            # Create payment submission cleanly using ORM
             PaymentSubmission.objects.create(
                 user=request.user,
                 category=cat_obj,
@@ -63,9 +61,9 @@ def submit_payment_view(request):
 @login_required
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def financial_dashboard_view(request):
-    pending_payments = PaymentSubmission.objects.filter(status__iexact='PENDING').order_by('-created_at')
-    verified_payments = PaymentSubmission.objects.filter(status__iexact='APPROVED').order_by('-created_at')
-    ledger_entries = FinancialLedger.objects.all().order_by('-created_at')
+    pending_payments = PaymentSubmission.objects.filter(status__iexact='PENDING').select_related('user', 'category').order_by('-created_at')
+    verified_payments = PaymentSubmission.objects.filter(status__iexact='APPROVED').select_related('user', 'category').order_by('-created_at')
+    ledger_entries = FinancialLedger.objects.all().select_related('posted_by').order_by('-created_at')
     
     total_revenue = sum(entry.amount for entry in ledger_entries if entry.amount)
 
@@ -87,20 +85,34 @@ def verify_payment_view(request, payment_id):
         user_id = request.user.id
 
         with connection.cursor() as cursor:
+            # 1. Update status
             cursor.execute(
                 "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
                 ['APPROVED', payment_id_str]
             )
 
+            # 2. Insert into Financial Ledger with Detailed Description (Payer Name + Category)
             cursor.execute("""
                 INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, posted_by_id, created_at)
-                SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', %s::uuid, NOW()
-                FROM finance_paymentsubmission
-                WHERE id::text = %s
+                SELECT 
+                    gen_random_uuid(), 
+                    p.id, 
+                    p.amount, 
+                    'Credit', 
+                    CONCAT(
+                        'Payment from ', COALESCE(u.first_name || ' ' || u.last_name, u.email, 'Member'),
+                        ' for ', COALESCE(c.name, 'General Contribution')
+                    ), 
+                    %s::uuid, 
+                    NOW()
+                FROM finance_paymentsubmission p
+                LEFT JOIN users_customuser u ON p.user_id = u.id
+                LEFT JOIN finance_paymentcategory c ON p.category_id = c.id
+                WHERE p.id::text = %s
                 ON CONFLICT DO NOTHING
             """, [str(user_id), payment_id_str])
 
-        messages.success(request, "Payment verified and posted to ledger successfully!")
+        messages.success(request, "Payment verified and posted to ledger with detailed payer info!")
         return redirect('financial_dashboard')
 
     return redirect('financial_dashboard')
