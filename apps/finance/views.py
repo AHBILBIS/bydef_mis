@@ -81,38 +81,37 @@ def financial_dashboard_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        payment_id_str = str(payment_id).strip()
-        user_id = request.user.id
+        try:
+            payment = PaymentSubmission.objects.select_related('user', 'category').get(id=payment_id)
+            payment.status = 'APPROVED'
+            payment.save()
 
-        with connection.cursor() as cursor:
-            # 1. Update status
-            cursor.execute(
-                "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
-                ['APPROVED', payment_id_str]
+            # Construct payer identification name
+            payer_name = "Member"
+            if payment.user:
+                if hasattr(payment.user, 'get_full_name') and payment.user.get_full_name():
+                    payer_name = payment.user.get_full_name()
+                elif payment.user.email:
+                    payer_name = payment.user.email
+
+            category_name = payment.category.name if payment.category else "General Contribution"
+            description_str = f"Payment from {payer_name} for {category_name}"
+
+            # Create or update ledger entry using ORM
+            FinancialLedger.objects.get_or_create(
+                payment=payment,
+                defaults={
+                    'amount': payment.amount,
+                    'transaction_type': 'Credit',
+                    'description': description_str,
+                    'posted_by': request.user
+                }
             )
 
-            # 2. Insert into Financial Ledger with Detailed Description (Payer Name + Category)
-            cursor.execute("""
-                INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, posted_by_id, created_at)
-                SELECT 
-                    gen_random_uuid(), 
-                    p.id, 
-                    p.amount, 
-                    'Credit', 
-                    CONCAT(
-                        'Payment from ', COALESCE(u.first_name || ' ' || u.last_name, u.email, 'Member'),
-                        ' for ', COALESCE(c.name, 'General Contribution')
-                    ), 
-                    %s::uuid, 
-                    NOW()
-                FROM finance_paymentsubmission p
-                LEFT JOIN users_customuser u ON p.user_id = u.id
-                LEFT JOIN finance_paymentcategory c ON p.category_id = c.id
-                WHERE p.id::text = %s
-                ON CONFLICT DO NOTHING
-            """, [str(user_id), payment_id_str])
+            messages.success(request, f"Payment verified and posted to ledger for {payer_name}!")
+        except PaymentSubmission.DoesNotExist:
+            messages.error(request, "Payment submission not found.")
 
-        messages.success(request, "Payment verified and posted to ledger with detailed payer info!")
         return redirect('financial_dashboard')
 
     return redirect('financial_dashboard')
@@ -122,15 +121,14 @@ def verify_payment_view(request, payment_id):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def reject_payment_view(request, payment_id):
     if request.method == 'POST':
-        payment_id_str = str(payment_id).strip()
+        try:
+            payment = PaymentSubmission.objects.get(id=payment_id)
+            payment.status = 'REJECTED'
+            payment.save()
+            messages.info(request, "Payment request rejected.")
+        except PaymentSubmission.DoesNotExist:
+            messages.error(request, "Payment submission not found.")
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
-                ['REJECTED', payment_id_str]
-            )
-
-        messages.info(request, "Payment request rejected.")
         return redirect('financial_dashboard')
 
     return redirect('financial_dashboard')
