@@ -56,21 +56,22 @@ def verify_payment_view(request, payment_id):
         payment = PaymentSubmission.objects.filter(pk=payment_id).first()
         
         if not payment:
-            # Fallback search by string representation
             payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == str(payment_id)), None)
 
         if not payment:
             messages.error(request, "Payment record not found.")
             return redirect('financial_dashboard')
 
-        # Directly update status in database (bypasses model insert triggers)
+        # Direct QuerySet update
         PaymentSubmission.objects.filter(pk=payment.pk).update(status='approved')
 
-        # Create or fetch ledger entry
-        FinancialLedger.objects.get_or_create(
-            payment=payment,
-            defaults={'amount': payment.amount}
-        )
+        # Check if ledger entry already exists using string PK reference
+        ledger_exists = FinancialLedger.objects.filter(payment_id=str(payment.pk)).exists()
+        if not ledger_exists:
+            FinancialLedger.objects.create(
+                payment_id=str(payment.pk),
+                amount=payment.amount
+            )
         
         messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
         return redirect('financial_dashboard')
