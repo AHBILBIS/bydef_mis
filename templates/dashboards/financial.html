@@ -80,21 +80,21 @@
                             {% endif %}
                         </td>
                         <td class="text-end">
-                            <form action="{% url 'verify_payment' payment.id %}" method="post" class="d-inline">
+                            <form action="{% url 'verify_payment' payment.pk %}" method="post" class="d-inline">
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-success btn-sm me-1">Verify & Post</button>
                             </form>
-                            <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectPaymentModal{{ payment.id }}">
+                            <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectPaymentModal{{ payment.pk }}">
                                 Reject
                             </button>
                         </td>
                     </tr>
 
                     <!-- Payment Rejection Modal -->
-                    <div class="modal fade" id="rejectPaymentModal{{ payment.id }}" tabindex="-1" aria-hidden="true">
+                    <div class="modal fade" id="rejectPaymentModal{{ payment.pk }}" tabindex="-1" aria-hidden="true">
                         <div class="modal-dialog">
                             <div class="modal-content">
-                                <form action="{% url 'reject_payment' payment.id %}" method="post">
+                                <form action="{% url 'reject_payment' payment.pk %}" method="post">
                                     {% csrf_token %}
                                     <div class="modal-header">
                                         <h5 class="modal-title">Reject Payment Submission</h5>
