@@ -10,7 +10,7 @@ class PaymentSubmission(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='payment_submissions')
-    category = models.ForeignKey('membership.ContributionCategory', on_delete=models.SET_NULL, null=True, blank=True)
+    category = models.ForeignKey('finance.PaymentCategory', on_delete=models.SET_NULL, null=True, blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     transaction_reference = models.CharField(max_length=100, blank=True, default='')
     proof_of_payment = models.FileField(upload_to='receipts/')
@@ -19,6 +19,14 @@ class PaymentSubmission(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.amount}"
+
+
+class PaymentCategory(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, default='')
+
+    def __str__(self):
+        return self.name
 
 
 class FinancialLedger(models.Model):
