@@ -11,11 +11,11 @@ from .forms import PaymentSubmissionForm
 @login_required
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def financial_dashboard_view(request):
-    pending_payments = PaymentSubmission.objects.filter(status='pending').order_by('-created_at')
-    verified_payments = PaymentSubmission.objects.filter(status='approved').order_by('-created_at')
+    # Fetch pending and approved items accounting for both uppercase and lowercase status values
+    pending_payments = PaymentSubmission.objects.filter(status__iexact='pending').order_by('-created_at')
+    verified_payments = PaymentSubmission.objects.filter(status__iexact='approved').order_by('-created_at')
     ledger_entries = FinancialLedger.objects.all().order_by('-created_at')
     
-    # Calculate sum of all ledger amounts safely
     total_revenue = sum(entry.amount for entry in ledger_entries if entry.amount)
 
     context = {
@@ -52,29 +52,37 @@ def submit_payment_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        # 1. Retrieve the PaymentSubmission object directly
         payment = PaymentSubmission.objects.filter(pk=payment_id).first()
         
         if not payment:
-            # Fallback search by string match if ID format differs
             payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == str(payment_id)), None)
 
         if not payment:
-            messages.error(request, "Payment record was not found or has already been processed.")
+            messages.error(request, "Payment record was not found.")
             return redirect('financial_dashboard')
 
-        # 2. Update status directly via QuerySet (bypasses model insert/update save triggers)
-        PaymentSubmission.objects.filter(pk=payment.pk).update(status='approved')
+        # Determine target approved status value
+        approved_val = 'APPROVED' if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED') else 'approved'
+        
+        # Update status directly in database
+        PaymentSubmission.objects.filter(pk=payment.pk).update(status=approved_val)
+        payment.refresh_from_db()
 
-        # 3. Safely check and create ledger entry using try/except to bypass ORM filter type errors
+        # Create ledger entry and explicitly catch specific fields
         try:
-            FinancialLedger.objects.create(
+            FinancialLedger.objects.get_or_create(
                 payment=payment,
-                amount=payment.amount
+                defaults={'amount': payment.amount}
             )
-        except Exception:
-            # If ledger entry already exists or duplicate key error occurs, proceed smoothly
-            pass
+        except Exception as e:
+            # Fallback direct creation
+            try:
+                FinancialLedger.objects.create(
+                    payment_id=payment.pk,
+                    amount=payment.amount
+                )
+            except Exception as inner_e:
+                print("Ledger creation error:", inner_e)
 
         messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
         return redirect('financial_dashboard')
