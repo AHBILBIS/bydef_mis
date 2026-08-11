@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from django.db import connection
 from apps.users.decorators import role_required
 from apps.users.models import CustomUser
-from .models import PaymentSubmission, FinancialLedger
+from .models import PaymentSubmission, FinancialLedger, PaymentCategory
 
 @login_required
 def submit_payment_view(request):
@@ -17,20 +17,51 @@ def submit_payment_view(request):
         proof = request.FILES.get('proof_of_payment')
 
         if amount and proof:
-            PaymentSubmission.objects.create(
-                user=request.user,
-                category_id=category_id if category_id else None,
+            # Handle proof of payment saving safely
+            submission = PaymentSubmission(
                 amount=amount,
                 transaction_reference=ref,
                 proof_of_payment=proof,
                 status='PENDING'
             )
+            submission.save()
+
+            # Link user_id and category_id safely using direct SQL to bypass type mismatch
+            user_id_str = str(request.user.id)
+            cat_id_str = str(category_id) if category_id else None
+
+            with connection.cursor() as cursor:
+                if cat_id_str:
+                    cursor.execute("""
+                        UPDATE finance_paymentsubmission 
+                        SET user_id = %s::text::bigint, category_id = %s::text::uuid
+                        WHERE id = %s
+                    """, [user_id_str, cat_id_str, str(submission.id)])
+                else:
+                    # If user_id column in database is bigint, cast string integer; if UUID, cast UUID
+                    try:
+                        cursor.execute("""
+                            UPDATE finance_paymentsubmission 
+                            SET user_id = %s::bigint
+                            WHERE id = %s
+                        """, [user_id_str, str(submission.id)])
+                    except Exception:
+                        cursor.execute("""
+                            UPDATE finance_paymentsubmission 
+                            SET user_id = %s::uuid
+                            WHERE id = %s
+                        """, [user_id_str, str(submission.id)])
+
             messages.success(request, "Payment submission received and pending verification!")
-            return redirect('financial_dashboard')
+            
+            if request.user.role in [CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN]:
+                return redirect('financial_dashboard')
+            return redirect('member_dashboard')
         else:
             messages.error(request, "Please fill in all required fields and attach proof of payment.")
 
-    return render(request, 'finance/submit_payment.html')
+    categories = PaymentCategory.objects.all()
+    return render(request, 'finance/submit_payment.html', {'categories': categories})
 
 
 @login_required
@@ -60,13 +91,11 @@ def verify_payment_view(request, payment_id):
         user_id = request.user.id
 
         with connection.cursor() as cursor:
-            # Update payment submission status
             cursor.execute(
                 "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
                 ['APPROVED', payment_id_str]
             )
 
-            # Insert into FinancialLedger with posted_by_id set to request.user.id
             cursor.execute("""
                 INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, posted_by_id, created_at)
                 SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', %s, NOW()
