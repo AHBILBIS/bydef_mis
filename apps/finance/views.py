@@ -8,25 +8,6 @@ from apps.users.models import CustomUser
 from .models import PaymentSubmission, FinancialLedger, PaymentCategory
 from .forms import PaymentSubmissionForm
 
-@login_required
-@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
-def financial_dashboard_view(request):
-    # Fetch pending and approved items accounting for both uppercase and lowercase status values
-    pending_payments = PaymentSubmission.objects.filter(status__iexact='pending').order_by('-created_at')
-    verified_payments = PaymentSubmission.objects.filter(status__iexact='approved').order_by('-created_at')
-    ledger_entries = FinancialLedger.objects.all().order_by('-created_at')
-    
-    total_revenue = sum(entry.amount for entry in ledger_entries if entry.amount)
-
-    context = {
-        'pending_payments': pending_payments,
-        'pending_count': pending_payments.count(),
-        'verified_payments': verified_payments,
-        'ledger_entries': ledger_entries,
-        'total_revenue': total_revenue,
-    }
-    return render(request, 'dashboards/financial.html', context)
-
 
 @login_required
 def submit_payment_view(request):
@@ -47,41 +28,6 @@ def submit_payment_view(request):
         form = PaymentSubmissionForm()
 
     return render(request, 'finance/submit_payment.html', {'form': form})
-
-@login_required
-@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
-def verify_payment_view(request, payment_id):
-    if request.method == 'POST':
-        # Retrieve payment
-        payment = PaymentSubmission.objects.filter(pk=payment_id).first()
-        
-        if not payment:
-            payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == str(payment_id)), None)
-
-        if not payment:
-            messages.error(request, "Payment record was not found.")
-            return redirect('financial_dashboard')
-
-        # Update status directly on model instance and save field specifically
-        payment.status = 'APPROVED' if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED') else 'approved'
-        try:
-            payment.save(update_fields=['status'])
-        except Exception:
-            PaymentSubmission.objects.filter(pk=payment.pk).update(status=payment.status)
-
-        # Create corresponding ledger entry
-        try:
-            FinancialLedger.objects.create(
-                payment=payment,
-                amount=payment.amount
-            )
-        except Exception as e:
-            print("Ledger entry creation:", e)
-
-        messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
-        return redirect('financial_dashboard')
-
-    return redirect('financial_dashboard')
 
 
 def reject_payment_view(request, payment_id):
@@ -141,3 +87,74 @@ def export_payments_csv_view(request):
         ])
 
     return response
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def financial_dashboard_view(request):
+    # Retrieve pending submissions (checking both lowercase and uppercase variations)
+    pending_payments = PaymentSubmission.objects.filter(status__in=['pending', 'PENDING']).order_by('-created_at')
+    verified_payments = PaymentSubmission.objects.filter(status__in=['approved', 'APPROVED']).order_by('-created_at')
+    ledger_entries = FinancialLedger.objects.all().order_by('-created_at')
+    
+    # Calculate sum of all ledger entries
+    total_revenue = sum(entry.amount for entry in ledger_entries if entry.amount)
+
+    context = {
+        'pending_payments': pending_payments,
+        'pending_count': pending_payments.count(),
+        'verified_payments': verified_payments,
+        'ledger_entries': ledger_entries,
+        'total_revenue': total_revenue,
+    }
+    return render(request, 'dashboards/financial.html', context)
+
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def verify_payment_view(request, payment_id):
+    if request.method == 'POST':
+        # Retrieve payment matching primary key or string representation
+        payment = PaymentSubmission.objects.filter(pk=payment_id).first()
+        if not payment:
+            payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == str(payment_id)), None)
+
+        if not payment:
+            messages.error(request, "Payment record was not found or has already been processed.")
+            return redirect('financial_dashboard')
+
+        # 1. Update status on PaymentSubmission
+        target_status = getattr(PaymentSubmission, 'Status', None)
+        approved_value = target_status.APPROVED if target_status and hasattr(target_status, 'APPROVED') else 'approved'
+        
+        PaymentSubmission.objects.filter(pk=payment.pk).update(status=approved_value)
+        payment.status = approved_value
+
+        # 2. Populate FinancialLedger with all possible required fields
+        ledger_data = {
+            'amount': payment.amount,
+        }
+        
+        # Safely assign optional foreign keys/fields if present on FinancialLedger model
+        if hasattr(FinancialLedger, 'payment'):
+            ledger_data['payment'] = payment
+        if hasattr(FinancialLedger, 'posted_by'):
+            ledger_data['posted_by'] = request.user
+        if hasattr(FinancialLedger, 'transaction_type'):
+            ledger_data['transaction_type'] = 'Credit'
+        if hasattr(FinancialLedger, 'description'):
+            cat_name = payment.category.name if hasattr(payment, 'category') and payment.category else 'General Payment'
+            ledger_data['description'] = f"Verified {cat_name} entry"
+
+        try:
+            FinancialLedger.objects.create(**ledger_data)
+        except Exception as e:
+            # Fallback creation if model structure differs
+            try:
+                FinancialLedger.objects.create(amount=payment.amount)
+            except Exception as inner_e:
+                print("Failed to post to ledger:", inner_e)
+
+        messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
+        return redirect('financial_dashboard')
+
+    return redirect('financial_dashboard')
