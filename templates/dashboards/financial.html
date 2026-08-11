@@ -60,10 +60,21 @@
                     {% for payment in pending_payments %}
                     <tr>
                         <td>
-                            <strong>{{ payment.user.get_full_name|default:payment.user.email }}</strong><br>
-                            <small class="text-muted">{{ payment.user.email }}</small>
+                            {% if payment.user %}
+                                <strong>{{ payment.user.get_full_name|default:payment.user.email }}</strong><br>
+                                <small class="text-muted">{{ payment.user.email }}</small>
+                            {% else %}
+                                <strong>Anonymous / Unlinked Member</strong><br>
+                                <small class="text-muted">User ID missing</small>
+                            {% endif %}
                         </td>
-                        <td><span class="badge bg-info text-dark">{{ payment.category.name|default:"General Contribution" }}</span></td>
+                        <td>
+                            {% if payment.category %}
+                                <span class="badge bg-info text-dark">{{ payment.category.name }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary">General Contribution</span>
+                            {% endif %}
+                        </td>
                         <td><code>{{ payment.transaction_reference|default:"N/A" }}</code></td>
                         <td><strong>₦{{ payment.amount|floatformat:2|intcomma }}</strong></td>
                         <td>
@@ -119,7 +130,13 @@
                         <td><span class="badge bg-success">{{ entry.transaction_type }}</span></td>
                         <td><strong class="text-success">₦{{ entry.amount|floatformat:2|intcomma }}</strong></td>
                         <td>{{ entry.description }}</td>
-                        <td>{{ entry.posted_by.email|default:"System Admin" }}</td>
+                        <td>
+                            {% if entry.posted_by %}
+                                {{ entry.posted_by.email }}
+                            {% else %}
+                                System Admin
+                            {% endif %}
+                        </td>
                         <td>{{ entry.created_at|date:"d M Y, H:i" }}</td>
                     </tr>
                     {% empty %}
