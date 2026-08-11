@@ -52,22 +52,27 @@ def submit_payment_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        try:
-            payment = PaymentSubmission.objects.get(pk=payment_id)
-        except PaymentSubmission.DoesNotExist:
-            messages.error(request, "Payment record was not found or has already been processed.")
+        payment_id_str = str(payment_id).strip()
+        
+        # Try fetching by primary key, or search all records by string matching
+        payment = PaymentSubmission.objects.filter(pk=payment_id).first()
+        if not payment:
+            payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == payment_id_str or str(getattr(p, 'id', '')) == payment_id_str), None)
+            
+        if not payment:
+            messages.error(request, f"Payment record ({payment_id}) was not found in the database.")
             return redirect('financial_dashboard')
         
-        # Mark payment as approved
+        # Update status
         payment.status = 'approved'
         if hasattr(payment, 'reviewed_by'):
             payment.reviewed_by = request.user
         payment.save()
 
-        # Post entry to ledger so revenue updates
-        FinancialLedger.objects.create(
+        # Post entry to ledger
+        FinancialLedger.objects.get_or_create(
             payment=payment,
-            amount=payment.amount
+            defaults={'amount': payment.amount}
         )
         
         messages.success(request, f"Payment of ?{payment.amount:,.2f} verified and posted to ledger!")
