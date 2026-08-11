@@ -52,30 +52,27 @@ def submit_payment_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        payment_id_str = str(payment_id).strip()
-        
-        # Try fetching by primary key, or search all records by string matching
+        # Retrieve payment
         payment = PaymentSubmission.objects.filter(pk=payment_id).first()
-        if not payment:
-            payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == payment_id_str or str(getattr(p, 'id', '')) == payment_id_str), None)
-            
-        if not payment:
-            messages.error(request, f"Payment record ({payment_id}) was not found in the database.")
-            return redirect('financial_dashboard')
         
-        # Update status
-        payment.status = 'approved'
-        if hasattr(payment, 'reviewed_by'):
-            payment.reviewed_by = request.user
-        payment.save()
+        if not payment:
+            # Fallback search by string representation
+            payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == str(payment_id)), None)
 
-        # Post entry to ledger
+        if not payment:
+            messages.error(request, "Payment record not found.")
+            return redirect('financial_dashboard')
+
+        # Directly update status in database (bypasses model insert triggers)
+        PaymentSubmission.objects.filter(pk=payment.pk).update(status='approved')
+
+        # Create or fetch ledger entry
         FinancialLedger.objects.get_or_create(
             payment=payment,
             defaults={'amount': payment.amount}
         )
         
-        messages.success(request, f"Payment of ?{payment.amount:,.2f} verified and posted to ledger!")
+        messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
         return redirect('financial_dashboard')
     
     return redirect('financial_dashboard')
