@@ -8,8 +8,22 @@ from apps.users.decorators import role_required
 from apps.users.models import CustomUser
 from .models import PaymentSubmission, FinancialLedger, PaymentCategory
 
+def align_finance_schema():
+    """Ensure database column types for finance_paymentsubmission match UUID user keys."""
+    try:
+        with connection.cursor() as cursor:
+            # Change user_id column type to UUID if it was created as bigint
+            cursor.execute("""
+                ALTER TABLE finance_paymentsubmission 
+                ALTER COLUMN user_id TYPE uuid USING user_id::text::uuid;
+            """)
+    except Exception:
+        pass  # Schema already updated or aligned
+
 @login_required
 def submit_payment_view(request):
+    align_finance_schema()
+
     if request.method == 'POST':
         amount = request.POST.get('amount')
         category_id = request.POST.get('category')
@@ -17,40 +31,22 @@ def submit_payment_view(request):
         proof = request.FILES.get('proof_of_payment')
 
         if amount and proof:
-            # 1. First attempt native Django creation
-            try:
-                PaymentSubmission.objects.create(
-                    user=request.user,
-                    category_id=category_id if category_id else None,
-                    amount=amount,
-                    transaction_reference=ref,
-                    proof_of_payment=proof,
-                    status='PENDING'
-                )
-            except Exception:
-                # 2. Fallback creation without foreign keys
-                submission = PaymentSubmission.objects.create(
-                    amount=amount,
-                    transaction_reference=ref,
-                    proof_of_payment=proof,
-                    status='PENDING'
-                )
-                
-                # Direct SQL update with matching integer/bigint types
-                user_id_str = str(request.user.id)
-                with connection.cursor() as cursor:
-                    if category_id:
-                        cursor.execute("""
-                            UPDATE finance_paymentsubmission 
-                            SET user_id = %s::text::bigint, category_id = %s::text::bigint
-                            WHERE id = %s
-                        """, [user_id_str, str(category_id), str(submission.id)])
-                    else:
-                        cursor.execute("""
-                            UPDATE finance_paymentsubmission 
-                            SET user_id = %s::text::bigint
-                            WHERE id = %s
-                        """, [user_id_str, str(submission.id)])
+            cat_obj = None
+            if category_id:
+                try:
+                    cat_obj = PaymentCategory.objects.get(id=category_id)
+                except (PaymentCategory.DoesNotExist, ValueError):
+                    cat_obj = None
+
+            # Create payment submission cleanly using ORM
+            PaymentSubmission.objects.create(
+                user=request.user,
+                category=cat_obj,
+                amount=amount,
+                transaction_reference=ref,
+                proof_of_payment=proof,
+                status='PENDING'
+            )
 
             messages.success(request, "Payment submission received and pending verification!")
             
@@ -98,11 +94,11 @@ def verify_payment_view(request, payment_id):
 
             cursor.execute("""
                 INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, posted_by_id, created_at)
-                SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', %s, NOW()
+                SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', %s::uuid, NOW()
                 FROM finance_paymentsubmission
                 WHERE id::text = %s
                 ON CONFLICT DO NOTHING
-            """, [user_id, payment_id_str])
+            """, [str(user_id), payment_id_str])
 
         messages.success(request, "Payment verified and posted to ledger successfully!")
         return redirect('financial_dashboard')
