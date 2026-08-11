@@ -52,6 +52,7 @@ def submit_payment_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
+        # Retrieve payment
         payment = PaymentSubmission.objects.filter(pk=payment_id).first()
         
         if not payment:
@@ -61,28 +62,21 @@ def verify_payment_view(request, payment_id):
             messages.error(request, "Payment record was not found.")
             return redirect('financial_dashboard')
 
-        # Determine target approved status value
-        approved_val = 'APPROVED' if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED') else 'approved'
-        
-        # Update status directly in database
-        PaymentSubmission.objects.filter(pk=payment.pk).update(status=approved_val)
-        payment.refresh_from_db()
-
-        # Create ledger entry and explicitly catch specific fields
+        # Update status directly on model instance and save field specifically
+        payment.status = 'APPROVED' if hasattr(PaymentSubmission, 'Status') and hasattr(PaymentSubmission.Status, 'APPROVED') else 'approved'
         try:
-            FinancialLedger.objects.get_or_create(
+            payment.save(update_fields=['status'])
+        except Exception:
+            PaymentSubmission.objects.filter(pk=payment.pk).update(status=payment.status)
+
+        # Create corresponding ledger entry
+        try:
+            FinancialLedger.objects.create(
                 payment=payment,
-                defaults={'amount': payment.amount}
+                amount=payment.amount
             )
         except Exception as e:
-            # Fallback direct creation
-            try:
-                FinancialLedger.objects.create(
-                    payment_id=payment.pk,
-                    amount=payment.amount
-                )
-            except Exception as inner_e:
-                print("Ledger creation error:", inner_e)
+            print("Ledger entry creation:", e)
 
         messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
         return redirect('financial_dashboard')
