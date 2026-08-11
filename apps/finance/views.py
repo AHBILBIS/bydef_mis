@@ -1,6 +1,8 @@
-﻿from django.shortcuts import render, redirect
+﻿import csv
+from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse
 from django.db import connection
 from apps.users.decorators import role_required
 from apps.users.models import CustomUser
@@ -81,7 +83,6 @@ def verify_payment_view(request, payment_id):
 def reject_payment_view(request, payment_id):
     if request.method == 'POST':
         payment_id_str = str(payment_id).strip()
-        reason = request.POST.get('rejection_reason', 'Payment rejected by administrator.')
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -93,3 +94,33 @@ def reject_payment_view(request, payment_id):
         return redirect('financial_dashboard')
 
     return redirect('financial_dashboard')
+
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def export_ledger_csv_view(request):
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="financial_ledger.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'Payment ID', 'Amount', 'Type', 'Description', 'Created At'])
+
+    for entry in FinancialLedger.objects.all().order_by('-created_at'):
+        writer.writerow([entry.id, entry.payment_id, entry.amount, entry.transaction_type, entry.description, entry.created_at])
+
+    return response
+
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def export_submissions_csv_view(request):
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="payment_submissions.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'User', 'Amount', 'Status', 'Reference', 'Created At'])
+
+    for sub in PaymentSubmission.objects.all().order_by('-created_at'):
+        writer.writerow([sub.id, sub.user, sub.amount, sub.status, sub.transaction_reference, sub.created_at])
+
+    return response
