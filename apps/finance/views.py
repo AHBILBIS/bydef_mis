@@ -113,7 +113,7 @@ def export_ledger_csv_view(request):
 
 @login_required
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
-def export_submissions_csv_view(request):
+def export_payments_csv_view(request):
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="payment_submissions.csv"'
 
@@ -124,3 +124,6 @@ def export_submissions_csv_view(request):
         writer.writerow([sub.id, sub.user, sub.amount, sub.status, sub.transaction_reference, sub.created_at])
 
     return response
+
+# Alias to guarantee compatibility regardless of url pattern naming
+export_submissions_csv_view = export_payments_csv_view
