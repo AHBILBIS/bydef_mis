@@ -57,20 +57,23 @@ def financial_dashboard_view(request):
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
         payment_id_str = str(payment_id).strip()
+        user_id = request.user.id
 
         with connection.cursor() as cursor:
+            # Update payment submission status
             cursor.execute(
                 "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
                 ['APPROVED', payment_id_str]
             )
 
+            # Insert into FinancialLedger with posted_by_id set to request.user.id
             cursor.execute("""
-                INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, created_at)
-                SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', NOW()
+                INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, posted_by_id, created_at)
+                SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', %s, NOW()
                 FROM finance_paymentsubmission
                 WHERE id::text = %s
                 ON CONFLICT DO NOTHING
-            """, [payment_id_str])
+            """, [user_id, payment_id_str])
 
         messages.success(request, "Payment verified and posted to ledger successfully!")
         return redirect('financial_dashboard')
@@ -125,5 +128,4 @@ def export_payments_csv_view(request):
 
     return response
 
-# Alias to guarantee compatibility regardless of url pattern naming
 export_submissions_csv_view = export_payments_csv_view
