@@ -17,38 +17,38 @@ def submit_payment_view(request):
         proof = request.FILES.get('proof_of_payment')
 
         if amount and proof:
-            # Handle proof of payment saving safely
-            submission = PaymentSubmission(
-                amount=amount,
-                transaction_reference=ref,
-                proof_of_payment=proof,
-                status='PENDING'
-            )
-            submission.save()
-
-            # Link user_id and category_id safely using direct SQL to bypass type mismatch
-            user_id_str = str(request.user.id)
-            cat_id_str = str(category_id) if category_id else None
-
-            with connection.cursor() as cursor:
-                if cat_id_str:
-                    cursor.execute("""
-                        UPDATE finance_paymentsubmission 
-                        SET user_id = %s::text::bigint, category_id = %s::text::uuid
-                        WHERE id = %s
-                    """, [user_id_str, cat_id_str, str(submission.id)])
-                else:
-                    # If user_id column in database is bigint, cast string integer; if UUID, cast UUID
-                    try:
+            # 1. First attempt native Django creation
+            try:
+                PaymentSubmission.objects.create(
+                    user=request.user,
+                    category_id=category_id if category_id else None,
+                    amount=amount,
+                    transaction_reference=ref,
+                    proof_of_payment=proof,
+                    status='PENDING'
+                )
+            except Exception:
+                # 2. Fallback creation without foreign keys
+                submission = PaymentSubmission.objects.create(
+                    amount=amount,
+                    transaction_reference=ref,
+                    proof_of_payment=proof,
+                    status='PENDING'
+                )
+                
+                # Direct SQL update with matching integer/bigint types
+                user_id_str = str(request.user.id)
+                with connection.cursor() as cursor:
+                    if category_id:
                         cursor.execute("""
                             UPDATE finance_paymentsubmission 
-                            SET user_id = %s::bigint
+                            SET user_id = %s::text::bigint, category_id = %s::text::bigint
                             WHERE id = %s
-                        """, [user_id_str, str(submission.id)])
-                    except Exception:
+                        """, [user_id_str, str(category_id), str(submission.id)])
+                    else:
                         cursor.execute("""
                             UPDATE finance_paymentsubmission 
-                            SET user_id = %s::uuid
+                            SET user_id = %s::text::bigint
                             WHERE id = %s
                         """, [user_id_str, str(submission.id)])
 
