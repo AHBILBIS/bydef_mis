@@ -90,3 +90,49 @@ def reject_payment_view(request, payment_id):
 
         messages.warning(request, f"Payment Ref: {payment.payment_reference} rejected.")
     return redirect('financial_dashboard')
+import csv
+from django.http import HttpResponse
+from django.contrib.auth.decorators import login_required
+from apps.users.decorators import role_required
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def export_ledger_csv_view(request):
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="financial_ledger_export.csv"'
+
+    writer = csv.writer(response)
+    # Header row
+    writer.writerow(['ID', 'Payment ID', 'Amount (NGN)', 'Created At'])
+
+    # Data rows
+    for entry in FinancialLedger.objects.all().order_by('-created_at'):
+        writer.writerow([
+            entry.id,
+            entry.payment_id if hasattr(entry, 'payment_id') else '',
+            entry.amount,
+            entry.created_at.strftime('%Y-%m-%d %H:%M:%S') if entry.created_at else ''
+        ])
+
+    return response
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def export_payments_csv_view(request):
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="payment_submissions_export.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'Category', 'Amount', 'Transaction Ref', 'Status', 'Submitted At'])
+
+    for p in PaymentSubmission.objects.all().order_by('-id'):
+        writer.writerow([
+            p.id,
+            getattr(p, 'category', ''),
+            p.amount,
+            getattr(p, 'transaction_reference', getattr(p, 'payment_reference', '')),
+            p.status,
+            p.created_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(p, 'created_at') and p.created_at else ''
+        ])
+
+    return response
