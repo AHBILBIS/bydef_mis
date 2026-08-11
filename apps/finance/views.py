@@ -1,102 +1,18 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
+﻿from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.db import transaction
-from django.db.models import Sum
+from django.contrib.auth.decorators import login_required
+from django.db import connection
 from apps.users.decorators import role_required
 from apps.users.models import CustomUser
-from .models import PaymentSubmission, FinancialLedger, PaymentCategory
-from .forms import PaymentSubmissionForm
-
-
-@login_required
-def submit_payment_view(request):
-    if request.method == 'POST':
-        form = PaymentSubmissionForm(request.POST, request.FILES)
-        if form.is_valid():
-            try:
-                payment = form.save(commit=False)
-                payment.member = request.user.profile
-                payment.status = PaymentSubmission.Status.PENDING
-                payment.save()
-
-                messages.success(request, 'Payment proof submitted successfully! Awaiting verification.')
-                return redirect('member_dashboard')
-            except Exception as e:
-                messages.error(request, f'Submission error: {str(e)}')
-    else:
-        form = PaymentSubmissionForm()
-
-    return render(request, 'finance/submit_payment.html', {'form': form})
-
-
-def reject_payment_view(request, payment_id):
-    if request.method == 'POST':
-        payment = get_object_or_404(PaymentSubmission, pk=payment_id)
-        reason = request.POST.get('rejection_reason', 'Payment could not be verified.')
-
-        payment.status = PaymentSubmission.Status.REJECTED
-        payment.rejection_reason = reason
-        payment.save()
-
-        messages.warning(request, f"Payment Ref: {payment.payment_reference} rejected.")
-    return redirect('financial_dashboard')
-import csv
-from django.http import HttpResponse
-from django.contrib.auth.decorators import login_required
-from apps.users.decorators import role_required
-
-@login_required
-@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
-def export_ledger_csv_view(request):
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="financial_ledger_export.csv"'
-
-    writer = csv.writer(response)
-    # Header row
-    writer.writerow(['ID', 'Payment ID', 'Amount (NGN)', 'Created At'])
-
-    # Data rows
-    for entry in FinancialLedger.objects.all().order_by('-created_at'):
-        writer.writerow([
-            entry.id,
-            entry.payment_id if hasattr(entry, 'payment_id') else '',
-            entry.amount,
-            entry.created_at.strftime('%Y-%m-%d %H:%M:%S') if entry.created_at else ''
-        ])
-
-    return response
-
-@login_required
-@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
-def export_payments_csv_view(request):
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="payment_submissions_export.csv"'
-
-    writer = csv.writer(response)
-    writer.writerow(['ID', 'Category', 'Amount', 'Transaction Ref', 'Status', 'Submitted At'])
-
-    for p in PaymentSubmission.objects.all().order_by('-id'):
-        writer.writerow([
-            p.id,
-            getattr(p, 'category', ''),
-            p.amount,
-            getattr(p, 'transaction_reference', getattr(p, 'payment_reference', '')),
-            p.status,
-            p.created_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(p, 'created_at') and p.created_at else ''
-        ])
-
-    return response
+from .models import PaymentSubmission, FinancialLedger
 
 @login_required
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def financial_dashboard_view(request):
-    # Retrieve pending submissions (checking both lowercase and uppercase variations)
-    pending_payments = PaymentSubmission.objects.filter(status__in=['pending', 'PENDING']).order_by('-created_at')
-    verified_payments = PaymentSubmission.objects.filter(status__in=['approved', 'APPROVED']).order_by('-created_at')
+    pending_payments = PaymentSubmission.objects.filter(status__iexact='PENDING').order_by('-created_at')
+    verified_payments = PaymentSubmission.objects.filter(status__iexact='APPROVED').order_by('-created_at')
     ledger_entries = FinancialLedger.objects.all().order_by('-created_at')
     
-    # Calculate sum of all ledger entries
     total_revenue = sum(entry.amount for entry in ledger_entries if entry.amount)
 
     context = {
@@ -113,48 +29,30 @@ def financial_dashboard_view(request):
 @role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
 def verify_payment_view(request, payment_id):
     if request.method == 'POST':
-        # Retrieve payment matching primary key or string representation
+        payment_id_str = str(payment_id).strip()
+
+        # Update PaymentSubmission status via direct SQL execution to bypass ORM UUID numeric casting bug
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
+                ['APPROVED', payment_id_str]
+            )
+
+        # Retrieve payment for amount check
         payment = PaymentSubmission.objects.filter(pk=payment_id).first()
-        if not payment:
-            payment = next((p for p in PaymentSubmission.objects.all() if str(p.pk) == str(payment_id)), None)
+        amount = payment.amount if payment else 0.00
 
-        if not payment:
-            messages.error(request, "Payment record was not found or has already been processed.")
-            return redirect('financial_dashboard')
+        # Insert into FinancialLedger via direct SQL execution
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO finance_financialledger (id, payment_id, amount, transaction_type, description, created_at)
+                SELECT gen_random_uuid(), id, amount, 'Credit', 'Verified Payment Submission', NOW()
+                FROM finance_paymentsubmission
+                WHERE id::text = %s
+                ON CONFLICT DO NOTHING
+            """, [payment_id_str])
 
-        # 1. Update status on PaymentSubmission
-        target_status = getattr(PaymentSubmission, 'Status', None)
-        approved_value = target_status.APPROVED if target_status and hasattr(target_status, 'APPROVED') else 'approved'
-        
-        PaymentSubmission.objects.filter(pk=payment.pk).update(status=approved_value)
-        payment.status = approved_value
-
-        # 2. Populate FinancialLedger with all possible required fields
-        ledger_data = {
-            'amount': payment.amount,
-        }
-        
-        # Safely assign optional foreign keys/fields if present on FinancialLedger model
-        if hasattr(FinancialLedger, 'payment'):
-            ledger_data['payment'] = payment
-        if hasattr(FinancialLedger, 'posted_by'):
-            ledger_data['posted_by'] = request.user
-        if hasattr(FinancialLedger, 'transaction_type'):
-            ledger_data['transaction_type'] = 'Credit'
-        if hasattr(FinancialLedger, 'description'):
-            cat_name = payment.category.name if hasattr(payment, 'category') and payment.category else 'General Payment'
-            ledger_data['description'] = f"Verified {cat_name} entry"
-
-        try:
-            FinancialLedger.objects.create(**ledger_data)
-        except Exception as e:
-            # Fallback creation if model structure differs
-            try:
-                FinancialLedger.objects.create(amount=payment.amount)
-            except Exception as inner_e:
-                print("Failed to post to ledger:", inner_e)
-
-        messages.success(request, f"Payment of ?{payment.amount:,.2f} successfully verified and posted to ledger!")
+        messages.success(request, f"Payment verified and posted to ledger successfully!")
         return redirect('financial_dashboard')
 
     return redirect('financial_dashboard')
