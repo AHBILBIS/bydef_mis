@@ -70,7 +70,26 @@ def verify_payment_view(request, payment_id):
                 ON CONFLICT DO NOTHING
             """, [payment_id_str])
 
-        messages.success(request, f"Payment verified and posted to ledger successfully!")
+        messages.success(request, "Payment verified and posted to ledger successfully!")
+        return redirect('financial_dashboard')
+
+    return redirect('financial_dashboard')
+
+
+@login_required
+@role_required(CustomUser.Role.FINANCIAL_SECRETARY, CustomUser.Role.CHAIRMAN)
+def reject_payment_view(request, payment_id):
+    if request.method == 'POST':
+        payment_id_str = str(payment_id).strip()
+        reason = request.POST.get('rejection_reason', 'Payment rejected by administrator.')
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE finance_paymentsubmission SET status = %s WHERE id::text = %s",
+                ['REJECTED', payment_id_str]
+            )
+
+        messages.info(request, "Payment request rejected.")
         return redirect('financial_dashboard')
 
     return redirect('financial_dashboard')
